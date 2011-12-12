@@ -1,0 +1,402 @@
+/*
+ * INOU, Integrated Numerical Operation Utility 
+ * Copyright (C) 2005 SAKURAI, Masashi (m.sakurai@dream.com)
+ */
+
+options {
+	LOOKAHEAD=2;
+	FORCE_LA_CHECK=true;
+	STATIC=false;
+	USER_TOKEN_MANAGER=false;
+	USER_CHAR_STREAM=false;
+}
+
+PARSER_BEGIN(LogicalExpression)
+
+package inou.math.logical;
+
+import inou.math.DefaultParameterMaker;
+import inou.math.FunctionUtil;
+import inou.math.Parameter;
+import inou.math.ParameterMaker;
+import inou.math.ScalarFunction;
+import java.io.ByteArrayInputStream;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Iterator;
+
+/**
+ * Logical Expression parser class:
+ *	
+ * This class parse the expression string and make a logical object,
+ * that consist Condition and some variable classes.
+ *
+ */
+public class LogicalExpression {
+
+	private double total;
+	private LinkedList argStack = new LinkedList();
+	private List parameters = new LinkedList();
+	private String input;
+	private String [] variables;
+	private Condition condition;
+	private ParameterMaker pmaker;
+
+	/** 
+	 * build a logical object from a expression string
+	 * @param in expression string
+	 * @param variables variable string
+	 */
+	public LogicalExpression(String in,String [] variables,ParameterMaker pm) {
+		this(new ByteArrayInputStream((in+"\n").getBytes()));
+		this.variables = variables;
+		this.input = in;
+		pmaker = pm;
+		if (pm == null) {
+			pmaker = new DefaultParameterMaker();
+		}
+
+		try {
+			switch (condition_line()) {
+			case -1:
+			case 0:
+				System.err.println("no expression string...");
+				break;
+			case 1:
+				condition = popCondition();
+				break;
+			}
+		} catch (ParseException x) {
+			x.printStackTrace();
+			System.err.println("Exception:"+x.getClass().getName());
+		}
+	}
+
+	protected Condition popCondition() throws ParseException {
+		if (argStack.isEmpty() || 
+			!(argStack.get(0) instanceof Condition)) {
+			throw new ParseException("["+argStack.get(0)+"] is not logical expression.");
+		}
+		return (Condition)argStack.removeFirst();
+	}
+
+	protected ScalarFunction popTerm() throws ParseException {
+		if (argStack.isEmpty() || 
+			!(argStack.get(0) instanceof ScalarFunction)) {
+			throw new ParseException("["+argStack.get(0)+"] is not algebraic expression.");
+		}
+		return (ScalarFunction)argStack.removeFirst();
+	}
+
+	static String [] defaultVariables = {"x","y","z"};
+	
+	/** 
+	 * build a logical object from a expression string.
+	 * Default variable (x,y,z) is used.
+	 * @param in expression string
+	 */
+	public LogicalExpression(String in) {
+		this(in, defaultVariables,null);
+	}
+
+
+	/**
+	   @return input string
+	*/
+	public String getInput() {
+		return input;
+	}
+
+	/** 
+	 * 
+	 * @return logical object
+	 */
+	public Condition getCondition() {
+		return condition;
+	}
+
+	/**
+	 * @return parameter objects
+	 */
+	public Parameter [] getParameters() {
+		Parameter [] ps = new Parameter[parameters.size()];
+		for (int i=0;i<parameters.size();i++) {
+			ps[i] = (Parameter)parameters.get(i);
+		}
+		return ps;
+	}
+
+	/** Test method to show how to use this class. */
+	public static void main(String args[]) throws ParseException {
+		String [] v = {"x","y"};
+		LogicalExpression parser = 
+			new LogicalExpression("[-2<x] & [x<2] & [y<x*(x-2)*(x+2)]",v,null);
+		Condition a = parser.getCondition();
+		System.out.println(a);
+	}
+}
+
+PARSER_END(LogicalExpression)
+
+SKIP :
+{
+	" "	| "\r" |"\t"
+}
+
+TOKEN :
+{
+	< EOL: "\n" >
+}
+
+TOKEN : /* relations */
+{
+	< GREATEREQUAL: ">=" > |
+    < LESSEQUAL: "<=" > |
+	< GREATER: ">" >  | 
+    < LESS: "<" > | 
+    < EQUAL: "=" >  |
+	< LBRA: "["> | <RBRA: "]">
+}
+
+TOKEN: /* logical operation */
+{
+	< AND: "&" >
+	|< OR: "|" >
+	|< XOR: "^" >
+	| < NOT: "!" >
+}
+
+int condition_line() :
+{}
+{
+	condition() (<EOL>|<EOF>)
+		{ return 1; }
+	|	 <EOL>
+		{ return 0; }
+	|	 <EOF>
+		{ return -1; }
+}
+
+void condition() :
+{}
+{
+	relation() | 
+	singleLogic() |
+	binaryLogic() 
+}
+
+void nestCondition() :
+{}
+{
+	<LBRA> condition() <RBRA>
+}
+
+void relation() :
+{Token x;}
+{
+	sum() 
+		( x = <GREATEREQUAL> | x = <LESSEQUAL> | 
+		  x = <GREATER> | x = <LESS> | 
+		  x = <EQUAL> ) 
+		sum()
+	{
+		ScalarFunction b = popTerm();
+		ScalarFunction a = popTerm();
+		if ( x.kind == GREATEREQUAL ) {
+			argStack.addFirst(ULogical.greaterEqual(a, b));
+		} else if (x.kind == LESSEQUAL ) {
+			argStack.addFirst(ULogical.lessEqual(a, b));
+		}  else if (x.kind == GREATER ) {
+			argStack.addFirst(ULogical.greaterThan(a, b));
+		}  else if (x.kind == LESS ) {
+			argStack.addFirst(ULogical.lessThan(a, b));
+		}  else if (x.kind == EQUAL ) {
+			argStack.addFirst(ULogical.equal(a, b));
+		} 
+	}
+}
+
+void singleLogic() :
+{ }
+{
+	<NOT> nestCondition()
+	{
+		Condition a = popCondition();
+		argStack.addFirst(ULogical.not(a));
+	}
+}
+
+void binaryLogic() :
+{ Token x;}
+{
+	nestCondition() (
+					 (x = <AND> | x = <OR> | x = <XOR> ) nestCondition()
+	{
+		Condition b = popCondition();
+		Condition a = popCondition();
+		if (x.kind == AND) {
+			argStack.addFirst(ULogical.and(a,b));
+		} else if (x.kind == OR) {
+			argStack.addFirst(ULogical.or(a,b));
+		} else if (x.kind == XOR) {
+			argStack.addFirst(ULogical.xor(a,b));
+		} else {
+			throw new ParseException("Bad logical operation : "+x);
+		}
+	}
+					 )+
+}
+
+// following lines are copied from sakurai.math.exp.Expression.jj
+
+TOKEN : /* OPERATORS */
+{
+	< PLUS: "+" >
+	|	< MINUS: "-" >
+	|	< MULTIPLY: "*" >
+	|	< DIVIDE: "/" >
+	|	< EXP: "**" >
+}
+
+TOKEN : /* numeric constants */
+{
+	< CONSTANT: <FLOAT>
+	 | <FLOAT> ( ["e","E"] ([ "-","+"])? <INTEGER> )?
+    >
+	 |	< #FLOAT: <INTEGER> 
+	 | <INTEGER> ( "." <INTEGER> )?
+	 | "." <INTEGER>
+		>
+	 |	< #INTEGER: ( <DIGIT> )+ >
+	 |	< #DIGIT: ["0" - "9"] >
+}
+
+TOKEN : /* Function names */
+{
+	< ID: ( <LETTER> )+ ( <DIGIT> | <LETTER> )* >
+  |	< #LETTER: ["a"-"z", "A"-"Z"] > 
+} 
+
+void sum() :
+{Token x;}
+{
+	term() ( 
+			( x = <PLUS> | x = <MINUS> ) term()
+	{
+		ScalarFunction a = popTerm();
+		ScalarFunction b = popTerm();
+		if ( x.kind == PLUS )
+			argStack.addFirst(FunctionUtil.add(b, a));
+		else
+			argStack.addFirst(FunctionUtil.sub(b, a));
+	}
+			)*
+}
+
+void term() :
+{Token x;}
+{
+	exp() ( 
+		   ( x = <MULTIPLY> | x = <DIVIDE> ) exp()
+	{
+		ScalarFunction a = popTerm();
+		ScalarFunction b = popTerm();
+		if ( x.kind == MULTIPLY )
+			argStack.addFirst(FunctionUtil.multiple(b, a));
+		else
+			argStack.addFirst(FunctionUtil.divide(b, a));
+	}
+		   )*
+}
+
+void exp() :
+{ }
+{
+	unary() ( LOOKAHEAD( <EXP> )
+			  <EXP> exp()
+	{
+		ScalarFunction a = popTerm();
+		ScalarFunction b = popTerm();
+		argStack.addFirst(FunctionUtil.power(b, a));
+	}
+			  )*
+}
+
+void unary() :
+{ }
+{
+	<MINUS> element()
+		{
+			ScalarFunction a = popTerm();
+			argStack.addFirst(FunctionUtil.multiple(a,-1));
+		}
+	|
+		 element()
+}
+
+void element() :
+{}
+{
+	<CONSTANT>
+		{	try {
+			argStack.addFirst(FunctionUtil.constant(Double.valueOf(token.image).doubleValue(),variables.length));
+		} catch (NumberFormatException ee) {
+			System.err.println("not number : ["+token.image+"]");
+			argStack.addFirst(FunctionUtil.constant(0,variables.length));
+		}
+		}
+	|  function()
+		   |  "(" sum() ")"
+}
+
+void function() :
+{ String funcname;
+double args = 0; }
+{
+	<ID> {funcname = token.image;} [ "(" sum() {args++;} ( "," sum() {args++;})* ")" ]
+		{
+			ScalarFunction a, b, c;
+			//functions
+			if (args == 1) {
+				a = popTerm();
+				c = FunctionUtil.getPrimitiveFunctional(funcname,a);
+				if (c==null) {
+					System.err.print("Function ["+funcname+"] is not defined.");
+					argStack.addFirst(FunctionUtil.constant(1,variables.length));
+					throw new ParseException();
+				}
+				argStack.addFirst(c);
+			} else if (args == 0) {
+				//parameter
+				int ps=-1;
+				for(int i=0;i<variables.length;i++) {
+					if (funcname.equalsIgnoreCase(variables[i])) {
+						ps = i;
+						break;
+					}
+				}
+				if (ps >= 0) {
+					argStack.addFirst(FunctionUtil.variable(ps,variables.length));
+				} else {
+					//check previous parameter
+					Parameter pr = null;
+					for(Iterator e = parameters.iterator();e.hasNext();) {
+						Parameter pp = (Parameter)e.next();
+						if (pp.getName().equalsIgnoreCase(funcname)) {
+							pr = pp;
+						}
+					}
+					if (pr == null) {
+						pr = pmaker.getParameter(funcname,1);
+						parameters.add(pr);
+					}
+					argStack.addFirst(FunctionUtil.parameter(pr,variables.length));
+					System.err.println("Variable ["+funcname+"] is not defined.");
+					//throw new ParseException();
+				}
+			} else {
+				System.err.println("Wrong arguments to ["+funcname+"]");
+				throw new ParseException();
+			}
+		}
+}

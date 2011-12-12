@@ -1,0 +1,80 @@
+<?xml version="1.0" ?>
+
+<!--
+   INOU, the Integrated Numerical Operation Utility
+   Copyright (C) 2005 SAKURAI, Masashi 
+   (m.sakurai@kiwanami.net)
+ -->
+
+<project name="inou" default="compile" basedir=".">
+
+  <property name="javacchome" value="/usr/java/libs/javacc-5.0/" />
+  <property name="junit" value="/usr/java/lib/junit3.8.1/junit.jar" />
+
+  <target name="all">
+    <antcall target="clean"/>
+    <antcall target="total"/>
+  </target>
+
+  <target name="prepare">
+    <mkdir dir="dest" />
+  </target>
+
+  <!--  packing class files -->
+
+  <target name="jar" depends="compile">
+    <manifest file="manifest.txt">
+      <attribute name="Main-Class" value="inou.comp.INOUDemo"/>
+    </manifest>
+    <jar manifest="manifest.txt" jarfile="inou.jar" includes="**/*.class,**/*.txt,**/*.properties" basedir="dest"/>
+    <delete file="manifest.txt"/>
+  </target>
+
+  <target name="compile" depends="mathExp">
+    <javac srcdir="src" destdir="dest" encoding="Shift_JIS" source="1.5" debug="yes" excludes="**/junit/**"/>
+  </target>
+
+  <target name="compile_sample" depends="compile">
+    <javac srcdir="samples" destdir="samples" source="1.5" encoding="Shift_JIS" debug="yes">
+      <classpath>
+        <pathelement path="dest"/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="mathExp" depends="prepare">
+    <ant dir="src/inou/math/exp" antfile="javacc.xml" target="javacc" inheritAll="yes"/>
+    <ant dir="src/inou/math/logical" antfile="javacc.xml" target="javacc" inheritAll="yes"/>
+  </target>
+
+  <!-- packing source files -->
+
+  <target name="src">
+    <tstamp>
+      <format property="TODAY" pattern="yyyyMMdd"/>
+    </tstamp>
+    <zip destfile="inou_src.zip" basedir="src" excludes="**/.svn/**"/>
+  </target>
+
+  <!-- packing total files -->
+
+  <target name="total" depends="jar,src">
+    <tar tarfile="inou.tar.gz" basedir="." compression="gzip"
+      includes="inou_src.tar.gz, inou.jar, *.txt"/>
+  </target>
+
+  <!--  remove all files -->
+
+  <target name="clean">
+    <delete>
+      <fileset dir="." includes="*.gz, *.jar, *.zip"/>
+    </delete>
+    <delete dir="dest" />
+    <delete>
+      <fileset dir="samples" includes="*.class"/>
+    </delete>
+    <ant dir="src/inou/math/exp" antfile="javacc.xml" target="clean" inheritAll="yes"/>
+    <ant dir="src/inou/math/logical" antfile="javacc.xml" target="clean" inheritAll="yes"/>
+  </target>
+
+</project>
